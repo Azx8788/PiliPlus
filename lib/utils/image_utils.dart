@@ -291,6 +291,7 @@ abstract final class ImageUtils {
     required String fileName,
     FileType type = FileType.image,
     bool needToast = false,
+    String? albumPath,
   }) async {
     final file = File(filePath);
     if (!file.existsSync()) {
@@ -302,7 +303,7 @@ abstract final class ImageUtils {
       res = await SaverGallery.saveFile(
         filePath: filePath,
         fileName: fileName,
-        albumPath: _albumPath,
+        albumPath: albumPath ?? _albumPath,
         skipIfExists: false,
       );
     } else {

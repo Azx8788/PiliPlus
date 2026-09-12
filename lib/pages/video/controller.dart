@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io' show Directory, File;
 import 'dart:math' show min;
 import 'dart:ui';
 
+import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/segment_progress_bar.dart';
@@ -59,7 +61,10 @@ import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/extension/nested_scroll_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
+import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/parse_video.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -67,9 +72,10 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
-import 'package:dio/dio.dart' show Options;
+import 'package:dio/dio.dart' show CancelToken, Options;
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollViewState;
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
@@ -77,6 +83,7 @@ import 'package:get/get.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart' hide Subtitle;
+import 'package:path/path.dart' as path;
 
 class VideoDetailController extends GetxController
     with GetTickerProviderStateMixin, BlockMixin {
@@ -1610,5 +1617,193 @@ class VideoDetailController extends GetxController
     } else {
       res.toast();
     }
+  }
+
+  /// 通过第三方解析接口下载视频为 MP4 并保存到本地
+  Future<void> onDownloadMp4(BuildContext context) async {
+    if (!isUgc) {
+      SmartDialog.showToast('解析接口仅支持普通视频（番剧/影视暂不支持）');
+      return;
+    }
+
+    // 分P视频：非P1时拼接 ?p=N
+    String partQuery = '';
+    try {
+      final pages = Get.find<UgcIntroController>(
+        tag: heroTag,
+      ).videoDetail.value.pages;
+      if (pages case final list?) {
+        final page = list.firstWhereOrNull((e) => e.cid == cid.value)?.page;
+        if (page != null && page > 1) {
+          partQuery = '?p=$page';
+        }
+      }
+    } catch (_) {}
+
+    SmartDialog.showLoading(msg: '正在解析视频...');
+    final (:error, :result) = await ParseVideoApi.parse(
+      'https://www.bilibili.com/video/$bvid$partQuery',
+    );
+    SmartDialog.dismiss();
+
+    if (error != null) {
+      SmartDialog.showToast(error);
+      return;
+    }
+
+    final items = result!.items;
+    ParseVideoItem item;
+    if (items.length == 1) {
+      item = items.first;
+    } else {
+      if (!context.mounted) return;
+      final index = await showModalBottomSheet<int>(
+        context: context,
+        useSafeArea: true,
+        builder: (context) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: Text(
+                  '请选择要下载的内容（${items.length}个）',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              for (int i = 0; i < items.length; i++)
+                ListTile(
+                  title: Text(
+                    items[i].title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${items[i].durationFormat ?? ''}  ${items[i].qualityLabel}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => Get.back(result: i),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (index == null) return;
+      item = items[index];
+    }
+
+    final title = result.title.trim();
+    final fileName = _sanitizeFileName(title.isEmpty ? bvid : title);
+    final dirPath = path.join(appSupportDirPath, 'parse_video');
+    final savePath = path.join(dirPath, '$fileName.mp4');
+
+    try {
+      Directory(dirPath).createSync(recursive: true);
+      final oldFile = File(savePath);
+      if (oldFile.existsSync()) {
+        oldFile.deleteSync();
+      }
+    } catch (e) {
+      SmartDialog.showToast('创建下载目录失败：$e');
+      return;
+    }
+
+    final cancelToken = CancelToken();
+    final progressValue = RxnDouble(null);
+    final progressText = RxnString(null);
+
+    final downloadTask = ParseVideoApi.downloadVideo(
+      url: item.videoUrl,
+      savePath: savePath,
+      cancelToken: cancelToken,
+      onProgress: (received, total) {
+        if (total > 0) {
+          progressValue.value = received / total;
+          progressText.value =
+              '${(received / 1024 / 1024).toStringAsFixed(1)}MB / '
+              '${(total / 1024 / 1024).toStringAsFixed(1)}MB';
+        }
+      },
+    );
+
+    if (!context.mounted) {
+      cancelToken.cancel();
+      return;
+    }
+
+    bool dialogOpen = true;
+    final dialogFuture = showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Obx(
+        () => AlertDialog(
+          title: const Text('下载视频'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(fileName, maxLines: 2, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 16),
+              if (progressValue.value case final value?)
+                LinearProgressIndicator(value: value)
+              else
+                const CircularProgressIndicator(),
+              const SizedBox(height: 8),
+              if (progressText.value case final text?)
+                Text(
+                  text,
+                  style: TextStyle(color: ColorScheme.of(context).outline),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (!cancelToken.isCancelled) {
+                  cancelToken.cancel();
+                }
+                Get.back();
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() => dialogOpen = false);
+
+    final ok = await downloadTask;
+
+    if (dialogOpen) {
+      Get.back();
+    }
+    await dialogFuture;
+
+    if (ok) {
+      await ImageUtils.saveFileImg(
+        filePath: savePath,
+        fileName: '$fileName.mp4',
+        type: FileType.video,
+        needToast: true,
+        albumPath: 'Movies/${Constants.appName}',
+      );
+      // 清理临时文件
+      try {
+        final file = File(savePath);
+        if (file.existsSync()) {
+          file.deleteSync();
+        }
+      } catch (_) {}
+    } else {
+      SmartDialog.showToast(
+        cancelToken.isCancelled ? '已取消下载' : '下载失败，视频链接可能已过期，请重试',
+      );
+    }
+  }
+
+  String _sanitizeFileName(String name) {
+    final s = name.replaceAll(RegExp(r'[\\/:*?"<>|\r\n\t]'), '_').trim();
+    if (s.isEmpty) {
+      return bvid;
+    }
+    return s.length > 80 ? s.substring(0, 80) : s;
   }
 }

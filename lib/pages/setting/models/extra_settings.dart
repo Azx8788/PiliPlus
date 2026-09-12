@@ -624,6 +624,13 @@ List<SettingsModel> get extraSettings => [
     ),
   ),
   NormalModel(
+    leading: const Icon(Icons.download_for_offline_outlined),
+    title: '视频解析下载接口',
+    getSubtitle: () =>
+        '当前: ${Pref.parseApiUrl}\n用于「下载视频(MP4)」功能，接口失效时点击更换',
+    onTap: _showParseApiDialog,
+  ),
+  NormalModel(
     title: '最大缓存大小',
     getSubtitle: () =>
         '当前最大缓存大小: 「${CacheManager.formatSize(Pref.maxCacheSize)}」',
@@ -1104,6 +1111,73 @@ Future<void> _showMemberTabDialog(
     await GStorage.setting.put(SettingBoxKey.memberTab, res.index);
     setState();
   }
+}
+
+void _showParseApiDialog(BuildContext context, VoidCallback setState) {
+  String apiUrl = Pref.parseApiUrl;
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('视频解析下载接口'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '用于「下载视频(MP4)」功能，接口失效时可在此更换\n默认在接口地址后拼接 url 与 type=json 参数；\n若接口地址含 {url} 占位符，则直接替换为视频链接',
+            style: TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            initialValue: apiUrl,
+            onChanged: (e) => apiUrl = e,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: '接口地址',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(6)),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Get.back();
+            GStorage.setting.put(
+              SettingBoxKey.parseApiUrl,
+              Pref.defaultParseApiUrl,
+            );
+            setState();
+            SmartDialog.showToast('已恢复默认接口');
+          },
+          child: const Text('恢复默认'),
+        ),
+        TextButton(
+          onPressed: Get.back,
+          child: Text(
+            '取消',
+            style: TextStyle(color: ColorScheme.of(context).outline),
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            final value = apiUrl.trim();
+            if (!value.startsWith('http://') && !value.startsWith('https://')) {
+              SmartDialog.showToast('请输入合法的接口地址');
+              return;
+            }
+            Get.back();
+            GStorage.setting.put(SettingBoxKey.parseApiUrl, value);
+            setState();
+            SmartDialog.showToast('已保存');
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    ),
+  );
 }
 
 void _showProxyDialog(BuildContext context) {

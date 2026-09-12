@@ -212,7 +212,8 @@ abstract final class SettingBoxKey {
       danmakuFontWeight = 'fontWeight';
 
   static const String systemProxyHost = 'systemProxyHost',
-      systemProxyPort = 'systemProxyPort';
+      systemProxyPort = 'systemProxyPort',
+      parseApiUrl = 'parseApiUrl';
 
   static const String themeMode = 'themeMode',
       defaultTextScale = 'textScale',

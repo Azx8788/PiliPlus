@@ -301,6 +301,13 @@ abstract final class Pref {
   static String get systemProxyPort =>
       _setting.get(SettingBoxKey.systemProxyPort, defaultValue: '');
 
+  static const String defaultParseApiUrl = 'https://api.mir6.com/api/bzjiexi';
+
+  static String get parseApiUrl => _setting.get(
+    SettingBoxKey.parseApiUrl,
+    defaultValue: defaultParseApiUrl,
+  );
+
   static DynamicsTabType get defaultDynamicType =>
       DynamicsTabType.values[defaultDynamicTypeIndex];
 
