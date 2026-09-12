@@ -630,6 +630,13 @@ List<SettingsModel> get extraSettings => [
         '当前: ${Pref.parseApiUrl}\n用于「下载视频(MP4)」功能，接口失效时点击更换',
     onTap: _showParseApiDialog,
   ),
+  SwitchModel(
+    title: '解析时携带登录Cookie',
+    subtitle: '可解锁1080P等高清晰度\n注意: 会将登录凭证发送给解析接口，存在安全风险',
+    leading: const Icon(Icons.cookie_outlined),
+    setKey: SettingBoxKey.parseWithCookie,
+    defaultVal: false,
+  ),
   NormalModel(
     title: '最大缓存大小',
     getSubtitle: () =>
@@ -1124,7 +1131,7 @@ void _showParseApiDialog(BuildContext context, VoidCallback setState) {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            '用于「下载视频(MP4)」功能，接口失效时可在此更换\n默认在接口地址后拼接 url 与 type=json 参数；\n若接口地址含 {url} 占位符，则直接替换为视频链接',
+            '用于「下载视频(MP4)」功能，接口失效时可在此更换\n支持占位符: {bv} BV号 / {p} 分P序号 / {q} 清晰度代码\n含占位符时按模板请求；否则默认拼接 url 与 type=json 参数',
             style: TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 10),

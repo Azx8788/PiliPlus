@@ -213,7 +213,8 @@ abstract final class SettingBoxKey {
 
   static const String systemProxyHost = 'systemProxyHost',
       systemProxyPort = 'systemProxyPort',
-      parseApiUrl = 'parseApiUrl';
+      parseApiUrl = 'parseApiUrl',
+      parseWithCookie = 'parseWithCookie';
 
   static const String themeMode = 'themeMode',
       defaultTextScale = 'textScale',

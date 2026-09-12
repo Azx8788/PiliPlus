@@ -1626,74 +1626,57 @@ class VideoDetailController extends GetxController
       return;
     }
 
-    // 分P视频：非P1时拼接 ?p=N
-    String partQuery = '';
+    // 分P视频：确定当前P序号
+    int page = 1;
     try {
       final pages = Get.find<UgcIntroController>(
         tag: heroTag,
       ).videoDetail.value.pages;
       if (pages case final list?) {
-        final page = list.firstWhereOrNull((e) => e.cid == cid.value)?.page;
-        if (page != null && page > 1) {
-          partQuery = '?p=$page';
+        final p = list.firstWhereOrNull((e) => e.cid == cid.value)?.page;
+        if (p != null && p > 1) {
+          page = p;
         }
       }
     } catch (_) {}
 
-    SmartDialog.showLoading(msg: '正在解析视频...');
-    final (:error, :result) = await ParseVideoApi.parse(
-      'https://www.bilibili.com/video/$bvid$partQuery',
+    // 可选携带登录 Cookie（用于解锁 1080P 等高清晰度）
+    String? sessData;
+    if (Pref.parseWithCookie && Accounts.main.isLogin) {
+      try {
+        sessData =
+            Accounts
+                .main
+                .cookieJar
+                .domainCookies['bilibili.com']?['/']?['SESSDATA']
+                ?.cookie
+                .value;
+      } catch (_) {}
+    }
+
+    SmartDialog.showLoading(msg: '正在获取视频信息...');
+    var (:error, :result) = await ParseVideoApi.parse(
+      bvid: bvid,
+      page: page,
+      sessData: sessData,
     );
     SmartDialog.dismiss();
 
-    if (error != null) {
-      SmartDialog.showToast(error);
+    if (error != null || result == null) {
+      SmartDialog.showToast(error ?? '解析失败');
       return;
     }
 
-    final items = result!.items;
-    ParseVideoItem item;
-    if (items.length == 1) {
-      item = items.first;
-    } else {
-      if (!context.mounted) return;
-      final index = await showModalBottomSheet<int>(
-        context: context,
-        useSafeArea: true,
-        builder: (context) => SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              ListTile(
-                title: Text(
-                  '请选择要下载的内容（${items.length}个）',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              for (int i = 0; i < items.length; i++)
-                ListTile(
-                  title: Text(
-                    items[i].title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    '${items[i].durationFormat ?? ''}  ${items[i].qualityLabel}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => Get.back(result: i),
-                ),
-            ],
-          ),
-        ),
-      );
-      if (index == null) return;
-      item = items[index];
-    }
-
-    final title = result.title.trim();
-    final fileName = _sanitizeFileName(title.isEmpty ? bvid : title);
+    // 文件名优先使用视频标题
+    String title = bvid;
+    try {
+      title =
+          Get.find<UgcIntroController>(tag: heroTag).videoDetail.value.title ??
+          bvid;
+    } catch (_) {}
+    final fileName = _sanitizeFileName(
+      title.trim().isEmpty ? bvid : title.trim(),
+    );
     final dirPath = path.join(appSupportDirPath, 'parse_video');
     final savePath = path.join(dirPath, '$fileName.mp4');
 
@@ -1708,12 +1691,16 @@ class VideoDetailController extends GetxController
       return;
     }
 
+    final qualitySuffix =
+        result.quality > 0
+            ? '（${ParseVideoApi.qualityLabel(result.quality)}）'
+            : '';
     final cancelToken = CancelToken();
     final progressValue = RxnDouble(null);
     final progressText = RxnString(null);
 
     final downloadTask = ParseVideoApi.downloadVideo(
-      url: item.videoUrl,
+      url: result.videoUrl,
       savePath: savePath,
       cancelToken: cancelToken,
       onProgress: (received, total) {
@@ -1737,7 +1724,7 @@ class VideoDetailController extends GetxController
       barrierDismissible: false,
       builder: (context) => Obx(
         () => AlertDialog(
-          title: const Text('下载视频'),
+          title: Text('下载视频$qualitySuffix'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
